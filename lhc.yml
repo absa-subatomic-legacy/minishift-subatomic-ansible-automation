@@ -1,0 +1,107 @@
+---
+#Starts Local Hadron Collider
+- hosts: localhost
+  tasks:
+
+  # Assume dns & minishift are installed
+  - git:
+      repo: 'https://github.com/absa-subatomic/local-hadron-collider.git'
+      dest: local-hadron-collider
+      clone: True
+      update: False
+
+# Manually run `minishift addons install minishift-addons/subatomic --profile subatomic-local`
+# Not sure how to handle error if installed already
+  - name: Start minishift
+    shell: "{{item}}"
+    with_items:
+    - minishift profile set subatomic-local
+    - minishift addons enable admin-user --profile subatomic-local
+    - minishift addons enable subatomic --profile subatomic-local
+    - minishift start --profile subatomic-local --cpus 4 --memory 6144MB --disk-size 60GB --routing-suffix subatomic.local
+    args:
+      chdir: local-hadron-collider
+    failed_when: False
+
+  - name: minishift ip
+    command: chdir=local-hadron-collider minishift ip
+    register: minishift_ip
+    changed_when: False
+
+  - name: Print minishift ip
+    debug: var=minishift_ip.stdout
+
+  - name: Update dnsmasq
+    command: sed -i -e 's/.*address=\/subatomic.local\/.*/address=\/subatomic.local\/{{minishift_ip.stdout}}/' /usr/local/etc/dnsmasq.conf
+    args:
+      warn: False
+
+  - name: Restart dnsmasq
+    command: brew services restart dnsmasq
+    become: True
+
+  - name: Log in to OpenShift
+    command: oc login https://{{minishift_ip.stdout}}:8443 -u=admin -p=admin
+
+  - git:
+      repo: 'https://github.com/redhat-cop/openshift-applier.git'
+      dest: openshift-applier
+      clone: True
+      update: False
+
+  - name: Get OpenShift token
+    command: oc whoami -t
+    register: oc_token
+
+  - name: Print oc token
+    debug: var=oc_token.stdout
+
+  - name: Replace masterUrl
+    replace:
+      path: /Users/besterk/projects/quantum-mechanic/config/local.json
+      regexp: 'token": ".*'
+      replace: 'token": "{{oc_token.stdout}}"'
+
+  - name: Replace masterUrl
+    replace:
+      path: /Users/besterk/projects/quantum-mechanic/config/local.json
+      regexp: 'masterUrl": "https:\/\/.*'
+      replace: 'masterUrl": "https://{{minishift_ip.stdout}}:8443",'
+
+  - name: Install Applier dependecy via Ansible Galaxy
+    command: chdir=local-hadron-collider ansible-galaxy install --role-file requirements.yml --roles-path=roles
+
+  # see: https://github.com/ansible/ansible/issues/32499
+  - name: Run OpenShift Applier
+    shell: "{{item}}"
+    with_items:
+    - export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    - ansible-playbook -i inventory/hosts roles/openshift-applier/playbooks/openshift-cluster-seed.yml
+    args:
+      chdir: local-hadron-collider
+    failed_when: False
+#
+#  - pause:
+#      minutes: 15
+#      prompt: "Waiting for environment to setup"
+
+#  - name: Start Gluon
+#    command: chdir=../gluon ./mvnw spring-boot:run -pl nucleus -Dspring.profiles.active=local
+#    async: 120
+#    poll: 0
+#
+#  - name: Start Quantum Mechanic
+#    command: chdir=../quantum-mechanic npm run compile start
+#    async: 120
+#    poll: 0
+#
+#  - pause:
+#      minutes: 1
+#      prompt: "Waiting for Gluon and QM to start up"
+#
+#  - name: Create virtual env
+#    command: chdir=../subatomic-integration-testing/ sh run_integration_tests.sh
+
+
+
+
