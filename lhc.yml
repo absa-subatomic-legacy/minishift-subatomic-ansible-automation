@@ -3,7 +3,7 @@
 - hosts: localhost
 
   vars:
-    path_to_your_quantum_mechanic: '/Users/andre/Projects/Subatomic'
+    path_to_your_quantum_mechanic: '/Users/WimpLo/Projects/Subatomic'
 
   tasks:
 
