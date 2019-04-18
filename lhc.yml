@@ -1,9 +1,13 @@
 ---
 #Starts Local Hadron Collider
 - hosts: localhost
+
+  vars:
+    path_to_your_quantum_mechanic: '/Users/andre/Projects/Subatomic'
+
   tasks:
 
-  # Assume dns & minishift are installed
+    # Assume dns & minishift are installed
   - git:
       repo: 'https://github.com/absa-subatomic/local-hadron-collider.git'
       dest: local-hadron-collider
@@ -56,15 +60,15 @@
   - name: Print oc token
     debug: var=oc_token.stdout
 
-  - name: Replace masterUrl
+  - name: Replace token
     replace:
-      path: /Users/besterk/projects/quantum-mechanic/config/local.json
+      path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
       regexp: 'token": ".*'
       replace: 'token": "{{oc_token.stdout}}"'
 
   - name: Replace masterUrl
     replace:
-      path: /Users/besterk/projects/quantum-mechanic/config/local.json
+      path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
       regexp: 'masterUrl": "https:\/\/.*'
       replace: 'masterUrl": "https://{{minishift_ip.stdout}}:8443",'
 
