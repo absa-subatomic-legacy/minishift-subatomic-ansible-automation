@@ -265,7 +265,7 @@
       - export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
       - ansible-playbook -i inventory/hosts roles/openshift-applier/playbooks/openshift-cluster-seed.yml
       args:
-        chdir: {{path_to_your_local_hadron_collider}}
+        chdir: '{{path_to_your_local_hadron_collider}}'
       failed_when: False
 
 #  #  - pause:
