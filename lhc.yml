@@ -1,5 +1,6 @@
 ---
-#Title: Install/Re-install minishift and get Subatomic components configured  (MAC ONLY)
+# Title: Ansible Local Hadron Collider Setup  (MAC ONLY)
+# Description: Install/Re-install minishift and get Subatomic components configured  (MAC ONLY)
 # Note 1: Please ensure either xhyve or virtualbox are already installed as your hypervisor see https://docs.okd.io/latest/minishift/getting-started/setting-up-virtualization-environment.html
 # Note 2: This script will uninstall minishift if installed and will delete local-hadron and re-clone it (ie not idempotent)
 # Note 3: Please update the vars below to suit your installation
@@ -215,10 +216,10 @@
       args:
         warn: False
 
-#    - name: Add 127.0.0.1 to resolve.conf
+#    - name: Add 127.0.0.1 to resolve.conf (wip)
 #      command: brew services restart dnsmasq
 #    #      become: True
-    -
+
     - name: Restart dnsmasq
       command: brew services restart dnsmasq
 #      become: True
@@ -293,7 +294,3 @@
 #  #
 #  #  - name: Create virtual env
 #  #    command: chdir=../subatomic-integration-testing/ sh run_integration_tests.sh
-#
-#
-#
-#
