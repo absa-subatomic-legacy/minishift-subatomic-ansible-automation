@@ -20,65 +20,68 @@
       command: ansible --version
       register: ansible_version
 
-#    - name: Print brew_services
-#      debug: var=ansible_version
-#
-#    - name: Print brew_services
-#      debug: var={{ ansible_version.string|replace(".","") }}
+    - name: Print brew_services
+      debug: var=ansible_version
 
     - name: Ansible full version check
       fail:
         msg: " Ansible version {{ansible_version_to_be_greater_than}} is required, you have {{ansible_version.string}} installed"
       when: ( ansible_version.string|replace(".","") |int) <= ( ansible_version_to_be_greater_than|replace(".","") |int)
 
+    # Dnsmasq check
+    - name: Check if dnsmasq installed
+      command: brew services list
+      register: brew_services
 
-#    - name: Ansible major version check
-#      fail:
-#        msg: "Ansible major version is too small, got {{ansible_version.major}} need {{ansible_version_major}}, Ansible version {{ansible_version_to_be_greater_than}} is required"
-#      when: ansible_version.major|int < ansible_version_major|int
-#
-#    - name: Ansible minor version check
-#      fail:
-#        msg: "Ansible minor version is too small, got {{ansible_version.minor}} need {{ansible_version_minor}}, Ansible version {{ansible_version_to_be_greater_than}} is required"
-#      when: ansible_version.minor|int < ansible_version_minor|int
-#
-#    - name: Ansible revision version check
-#      fail:
-#        msg: "Ansible revision is too small, got {{ansible_version.revision}} need {{ansible_version_revision}}, Ansible version {{ansible_version_to_be_greater_than}} is required"
-#      when: ansible_version.revision|int < ansible_version_revision|int
+    - name: Print brew_services
+      debug: var=brew_services
 
-#
-#    # Dnsmasq check
-#    - name: Check if dnsmasq installed
-#      command: brew services list
-#      register: brew_services
-#
-#    - name: Check for dnsmasq and error out if not installed
-#      fail:
-#        msg: "dnsmasq is NOT installed, please install it before you continue"
-#      when: brew_services.stdout.find("dnsmasq") == -1
-#
-#    - name: Print brew_services
-#      debug: var=brew_services.stdout
-#
-#    # Remove minishift (ignore errors for now)
-#    - name: Uninstall minishift
-#      command: "{{item}}"
-#      with_items:
-#        - minishift stop
-#        - minishift delete
-#        - rm -rf ~/.minishift
-#        - rm -rf ~/.kube
-#        - brew cask remove minishift
-#      ignore_errors: yes
-#
-#    # Install minishift
-#    - name: Install minishift
-#      command: brew cask install minishift
-#
-#    - name: Set VM driver
-#      command: minishift config set vm-driver {{vm_driver}}
-#
+    - name: Check for dnsmasq and error out if not installed
+      fail:
+        msg: "dnsmasq is NOT installed, please install it before you continue"
+      when: brew_services.stdout.find("dnsmasq") == -1
+
+    # minishift installed?
+    - name: Get minishift version
+      command: 'minishift version'
+      register: minishift_version
+      ignore_errors: yes
+
+    - name: Print minishift_version
+      debug: var=minishift_version
+
+    - name: Minishift found
+      command: echo "Found minishift :)"
+      register: found_mini
+      when: minishift_version.failed == false
+      ignore_errors: yes
+
+    - name: Minishift NOT found
+      command: echo " minishift missing, ie do not run uninstall"
+      register: found_mini
+      when: minishift_version.failed == true
+      ignore_errors: yes
+
+    - debug: var=found_mini.stdout
+
+    # Remove minishift if installed
+    - name: Uninstall minishift
+      command: "{{item}}"
+      with_items:
+        - minishift stop
+        - minishift delete
+        - rm -rf ~/.minishift
+        - rm -rf ~/.kube
+        - brew cask remove minishift
+      when: minishift_version.failed == false
+
+    # Install minishift
+    - name: Install minishift
+      command: brew cask install minishift
+
+    - name: Set VM driver
+      command: minishift config set vm-driver {{vm_driver}}
+
 ##    # Local hadron setup
 #    - name: Ensure local hadron collider folder exists
 #      file:
