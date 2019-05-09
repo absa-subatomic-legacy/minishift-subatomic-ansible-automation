@@ -198,13 +198,16 @@
       command: minishift addons apply subatomic
       ignore_errors: yes
 
-    # 9. Restart minishift
-    - name: Minishift start
+    # 9. Restart minishift (TODO needs to wait for start)
+    - name: Minishift restart
       command: minishift openshift restart
+      register: minishift_openshift_restart
+
+    - debug: var=minishift_openshift_restart
 
     # 10. Update dnsmasq with minishift ip + do curl check
     - name: minishift ip
-      command: chdir={{path_to_your_local_hadron_collider}} minishift ip
+      command: minishift ip
       register: minishift_ip
       changed_when: False
 
@@ -233,18 +236,27 @@
       debug: var=curl_check
 
     # 11. Install Subatomic infra-components
+    - name: Log out of OpenShift
+      command: oc logout
+      ignore_errors: yes
+
     - name: Log in to OpenShift
       command: oc login https://{{minishift_ip.stdout}}:8443 -u=admin -p=admin
+
+    - name: Get OpenShift token
+      command: oc whoami -t
+      register: oc_token
+
+    - debug: var=oc_token
+
+    - name: Log in to OpenShift using token
+      command: oc login https://{{minishift_ip.stdout}}:8443 --token={{oc_token.stdout}}
 
     - git:
         repo: 'https://github.com/redhat-cop/openshift-applier.git'
         dest: openshift-applier
         clone: True
         update: False
-
-    - name: Get OpenShift token
-      command: oc whoami -t
-      register: oc_token
 
     - name: Print oc token
       debug: var=oc_token.stdout
