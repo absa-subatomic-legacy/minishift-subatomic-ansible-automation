@@ -1,111 +1,193 @@
 ---
-#Starts Local Hadron Collider
+#Install minishift and get local hadron collier  (MAC ONLY)
 - hosts: localhost
 
   vars:
-    path_to_your_quantum_mechanic: '/Users/WimpLo/Projects/Subatomic'
+    path_to_your_quantum_mechanic: '/Users/andre/Projects/Subatomic'
+    path_to_your_local_hadron_collider: '/Users/andre/Projects/Subatomic'
+
+    vm_driver: 'virtualbox'
+    cpus: "6"
+    memory_MB: "8000"
+    disk_size_GB: "25"
+
+    ansible_version_to_be_greater_than: "2.5.0"
 
   tasks:
 
-    # Assume dns & minishift are installed
-  - git:
-      repo: 'https://github.com/absa-subatomic/local-hadron-collider.git'
-      dest: local-hadron-collider
-      clone: True
-      update: False
+    # Ansible version check
+    - name: Check Ansible version is > {{ansible_version.string}}
+      command: ansible --version
+      register: ansible_version
 
-# Manually run `minishift addons install minishift-addons/subatomic --profile subatomic-local`
-# Not sure how to handle error if installed already
-  - name: Start minishift
-    shell: "{{item}}"
-    with_items:
-    - minishift profile set subatomic-local
-    - minishift addons enable admin-user --profile subatomic-local
-    - minishift addons enable subatomic --profile subatomic-local
-    - minishift start --profile subatomic-local --cpus 4 --memory 6144MB --disk-size 60GB --routing-suffix subatomic.local
-    args:
-      chdir: local-hadron-collider
-    failed_when: False
-
-  - name: minishift ip
-    command: chdir=local-hadron-collider minishift ip
-    register: minishift_ip
-    changed_when: False
-
-  - name: Print minishift ip
-    debug: var=minishift_ip.stdout
-
-  - name: Update dnsmasq
-    command: sed -i -e 's/.*address=\/subatomic.local\/.*/address=\/subatomic.local\/{{minishift_ip.stdout}}/' /usr/local/etc/dnsmasq.conf
-    args:
-      warn: False
-
-  - name: Restart dnsmasq
-    command: brew services restart dnsmasq
-    become: True
-
-  - name: Log in to OpenShift
-    command: oc login https://{{minishift_ip.stdout}}:8443 -u=admin -p=admin
-
-  - git:
-      repo: 'https://github.com/redhat-cop/openshift-applier.git'
-      dest: openshift-applier
-      clone: True
-      update: False
-
-  - name: Get OpenShift token
-    command: oc whoami -t
-    register: oc_token
-
-  - name: Print oc token
-    debug: var=oc_token.stdout
-
-  - name: Replace token
-    replace:
-      path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
-      regexp: 'token": ".*'
-      replace: 'token": "{{oc_token.stdout}}"'
-
-  - name: Replace masterUrl
-    replace:
-      path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
-      regexp: 'masterUrl": "https:\/\/.*'
-      replace: 'masterUrl": "https://{{minishift_ip.stdout}}:8443",'
-
-  - name: Install Applier dependecy via Ansible Galaxy
-    command: chdir=local-hadron-collider ansible-galaxy install --role-file requirements.yml --roles-path=roles
-
-  # see: https://github.com/ansible/ansible/issues/32499
-  - name: Run OpenShift Applier
-    shell: "{{item}}"
-    with_items:
-    - export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    - ansible-playbook -i inventory/hosts roles/openshift-applier/playbooks/openshift-cluster-seed.yml
-    args:
-      chdir: local-hadron-collider
-    failed_when: False
+#    - name: Print brew_services
+#      debug: var=ansible_version
 #
-#  - pause:
-#      minutes: 15
-#      prompt: "Waiting for environment to setup"
+#    - name: Print brew_services
+#      debug: var={{ ansible_version.string|replace(".","") }}
 
-#  - name: Start Gluon
-#    command: chdir=../gluon ./mvnw spring-boot:run -pl nucleus -Dspring.profiles.active=local
-#    async: 120
-#    poll: 0
+    - name: Ansible full version check
+      fail:
+        msg: " Ansible version {{ansible_version_to_be_greater_than}} is required, you have {{ansible_version.string}} installed"
+      when: ( ansible_version.string|replace(".","") |int) <= ( ansible_version_to_be_greater_than|replace(".","") |int)
+
+
+#    - name: Ansible major version check
+#      fail:
+#        msg: "Ansible major version is too small, got {{ansible_version.major}} need {{ansible_version_major}}, Ansible version {{ansible_version_to_be_greater_than}} is required"
+#      when: ansible_version.major|int < ansible_version_major|int
 #
-#  - name: Start Quantum Mechanic
-#    command: chdir=../quantum-mechanic npm run compile start
-#    async: 120
-#    poll: 0
+#    - name: Ansible minor version check
+#      fail:
+#        msg: "Ansible minor version is too small, got {{ansible_version.minor}} need {{ansible_version_minor}}, Ansible version {{ansible_version_to_be_greater_than}} is required"
+#      when: ansible_version.minor|int < ansible_version_minor|int
 #
-#  - pause:
-#      minutes: 1
-#      prompt: "Waiting for Gluon and QM to start up"
+#    - name: Ansible revision version check
+#      fail:
+#        msg: "Ansible revision is too small, got {{ansible_version.revision}} need {{ansible_version_revision}}, Ansible version {{ansible_version_to_be_greater_than}} is required"
+#      when: ansible_version.revision|int < ansible_version_revision|int
+
 #
-#  - name: Create virtual env
-#    command: chdir=../subatomic-integration-testing/ sh run_integration_tests.sh
-
-
-
-
+#    # Dnsmasq check
+#    - name: Check if dnsmasq installed
+#      command: brew services list
+#      register: brew_services
+#
+#    - name: Check for dnsmasq and error out if not installed
+#      fail:
+#        msg: "dnsmasq is NOT installed, please install it before you continue"
+#      when: brew_services.stdout.find("dnsmasq") == -1
+#
+#    - name: Print brew_services
+#      debug: var=brew_services.stdout
+#
+#    # Remove minishift (ignore errors for now)
+#    - name: Uninstall minishift
+#      command: "{{item}}"
+#      with_items:
+#        - minishift stop
+#        - minishift delete
+#        - rm -rf ~/.minishift
+#        - rm -rf ~/.kube
+#        - brew cask remove minishift
+#      ignore_errors: yes
+#
+#    # Install minishift
+#    - name: Install minishift
+#      command: brew cask install minishift
+#
+#    - name: Set VM driver
+#      command: minishift config set vm-driver {{vm_driver}}
+#
+##    # Local hadron setup
+#    - name: Ensure local hadron collider folder exists
+#      file:
+#        state: directory
+#        path: '{{path_to_your_local_hadron_collider}}/local-hadron-collider'
+#        mode: 0777
+#
+#    - git:
+#        repo: 'https://github.com/absa-subatomic/local-hadron-collider.git'
+#        dest: '{{path_to_your_local_hadron_collider}}/local-hadron-collider'
+#        clone: True
+#        update: False
+#
+#  # Manually run `minishift addons install minishift-addons/subatomic --profile subatomic-local`
+#  # Not sure how to handle error if installed already
+#    - name: Start minishift
+#      shell: "{{item}}"
+#      with_items:
+#      - minishift profile set subatomic-local
+#      - minishift addons enable admin-user --profile subatomic-local
+#      - minishift addons enable subatomic --profile subatomic-local
+#      - minishift start --profile subatomic-local --cpus {{cpus}} --memory {{memory_MB}}MB --disk-size {{disk_size_GB}}GB --routing-suffix subatomic.local --vm-driver
+#      args:
+#        chdir: '{{path_to_your_local_hadron_collider}}/local-hadron-collider'
+#      failed_when: False
+#
+#    - name: minishift ip
+#      command: chdir={{path_to_your_local_hadron_collider}}/local-hadron-collider minishift ip
+#      register: minishift_ip
+#      changed_when: False
+#
+#    - name: Print minishift ip
+#      debug: var=minishift_ip.stdout
+#
+#    - name: Update dnsmasq
+#      command: sed -i -e 's/.*address=\/subatomic.local\/.*/address=\/subatomic.local\/{{minishift_ip.stdout}}/' /usr/local/etc/dnsmasq.conf
+#      args:
+#        warn: False
+#
+#    - name: Restart dnsmasq
+#      command: brew services restart dnsmasq
+#      become: True
+#
+#    - name: Minishift start
+#      command: minishift start
+#
+#
+#    - name: Log in to OpenShift
+#      command: oc login https://{{minishift_ip.stdout}}:8443 -u=admin -p=admin
+#
+#    - git:
+#        repo: 'https://github.com/redhat-cop/openshift-applier.git'
+#        dest: openshift-applier
+#        clone: True
+#        update: False
+#
+#    - name: Get OpenShift token
+#      command: oc whoami -t
+#      register: oc_token
+#
+#    - name: Print oc token
+#      debug: var=oc_token.stdout
+#
+#    - name: Replace token
+#      replace:
+#        path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
+#        regexp: 'token": ".*'
+#        replace: 'token": "{{oc_token.stdout}}"'
+#
+#    - name: Replace masterUrl
+#      replace:
+#        path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
+#        regexp: 'masterUrl": "https:\/\/.*'
+#        replace: 'masterUrl": "https://{{minishift_ip.stdout}}:8443",'
+#
+#    - name: Install Applier dependecy via Ansible Galaxy
+#      command: chdir={{path_to_your_local_hadron_collider}}/local-hadron-collider ansible-galaxy install --role-file requirements.yml --roles-path=roles
+#
+#    # see: https://github.com/ansible/ansible/issues/32499
+#    - name: Run OpenShift Applier
+#      shell: "{{item}}"
+#      with_items:
+#      - export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+#      - ansible-playbook -i inventory/hosts roles/openshift-applier/playbooks/openshift-cluster-seed.yml
+#      args:
+#        chdir: {{path_to_your_local_hadron_collider}}/local-hadron-collider
+#      failed_when: False
+#
+#  #  - pause:
+#  #      minutes: 15
+#  #      prompt: "Waiting for environment to setup"
+#
+#  #  - name: Start Gluon
+#  #    command: chdir=../gluon ./mvnw spring-boot:run -pl nucleus -Dspring.profiles.active=local
+#  #    async: 120
+#  #    poll: 0
+#  #
+#  #  - name: Start Quantum Mechanic
+#  #    command: chdir=../quantum-mechanic npm run compile start
+#  #    async: 120
+#  #    poll: 0
+#  #
+#  #  - pause:
+#  #      minutes: 1
+#  #      prompt: "Waiting for Gluon and QM to start up"
+#  #
+#  #  - name: Create virtual env
+#  #    command: chdir=../subatomic-integration-testing/ sh run_integration_tests.sh
+#
+#
+#
+#
