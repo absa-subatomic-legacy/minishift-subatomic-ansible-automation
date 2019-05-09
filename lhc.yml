@@ -14,13 +14,13 @@
     vm_driver: 'virtualbox'
 
     cpus: "4"
-    memory_MB: "8000"
+    memory_MB: "7000"
     disk_size_GB: "25"
 
     ansible_version_to_be_greater_than: "2.5.0"
 
-    # time to wait for minishift to download isos and start (1200 = 20 minutes)
-    minishift_startup_timeout_secs: 1200
+    # time to wait for minishift to download isos and start (1800 = 30 minutes)
+    minishift_startup_timeout_secs: 1800
 
   tasks:
 
@@ -44,11 +44,6 @@
 
     - name: Print brew_services variable
       debug: var=brew_services
-
-#    - name: Check for dnsmasq and error out if not installed
-#      fail:
-#        msg: "dnsmasq is NOT installed, please install it before you continue"
-#      when: brew_services.stdout.find("dnsmasq") == -1
 
     - name: Install dnsmasq if not installed
       command: brew install dnsmasq
@@ -88,6 +83,7 @@
         - rm -rf ~/.kube
         - brew cask remove minishift
       when: minishift_version.failed == false
+      ignore_errors: yes
 
     # 4. Install minishift
     - name: Install minishift
@@ -124,19 +120,11 @@
         chdir: '{{path_to_your_local_hadron_collider}}'
       failed_when: False
 
-#    - name: Check pwd
-#      command: pwd
-#      register: this_pwd
-#
-#    - name: Print this_pwd variable
-#      debug: var=this_pwd
-
+    # 7. minishift start with params
     - name: delete minishift start log
       command: rm -rf {{path_to_minishift_start_output_log}}/minishift_start.log
 
-
-    # 7. minishift start with params
-    - name: 0/5. Start minishift
+    - name: Start minishift
       shell: "{{item}}"
       with_items:
       - minishift start --profile subatomic-local --cpus {{cpus}} --memory {{memory_MB}}MB --disk-size {{disk_size_GB}}GB --routing-suffix subatomic.local --vm-driver {{vm_driver}} >> {{path_to_minishift_start_output_log}}/minishift_start.log
@@ -145,108 +133,137 @@
       async: 2400
       poll: 0
 
-    - name: 1/5. Wait for Downloading OpenShift binary...
+    - name: Wait for minishift to download and first time start
       wait_for:
         path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
-        search_regex: 'Downloading OpenShift binary'
-        timeout: 600
+        search_regex: "{{item}}"
+        timeout: '{{minishift_startup_timeout_secs}}'
+      with_items:
+        - -- Starting profile 'subatomic-local'
+        - -- Check if deprecated options are used
+        - -- Checking if https://github.com is reachable
+        - -- Checking if requested OpenShift version
+        - -- Checking if requested hypervisor
+        - -- Checking the ISO URL
+        - -- Downloading OpenShift binary 'oc' version
+        - -- Checking if provided oc flags are supported
+        - -- Starting the OpenShift cluster using
+        - -- Minishift VM will be configured with
+        - Downloading ISO
+        - -- Starting Minishift VM
+        - -- Checking for IP address
+        - -- Checking for nameservers
+        - -- Checking if external host is reachable
+        - -- Checking HTTP connectivity from the VM
+        - -- Checking if persistent storage volume is mounted
+        - -- Checking available disk space
+        - -- Writing current configuration for static assignment of IP address
+        - -- OpenShift cluster will be configured with
+        - -- Pulling the OpenShift Container Image
+        - -- Copying oc binary from the OpenShift container image to VM
+        - -- Starting OpenShift cluster
+        - Getting a Docker client
+        - Checking type of volume mount
+        - Determining server IP
+        - Checking if OpenShift is already running
+        - Checking for supported Docker version
+        - Checking if insecured registry is configured properly in Docker
+        - Checking if required ports are available
+        - Checking if OpenShift client is configured properly
+        - Checking if image openshift/origin-control-plane
+        - Starting OpenShift using
+        - Adding default OAuthClient redirect URIs
+        - Adding registry
+        - Adding persistent-volumes
+        - Adding web-console
+        - Adding centos-imagestreams
+        - Adding router
+        - Adding sample-templates
+        - Login to server
+        - Creating initial project "myproject"
+        - Server Information
+        - OpenShift server started
+        - The server is accessible via web console at
+        - -- Applying addon 'subatomic'
+        - -- Applying addon 'admin-user'
+        - -- Exporting of OpenShift images is occuring in background process with pid
 
-    - name: 2/5. Wait for Minishift VM will be configured with ...
-      wait_for:
-        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
-        search_regex: 'Minishift VM will be configured with ...'
-        timeout: 600
+    # 8. Re-apply addons if failed (TODO)
+    - name: Apply addons
+      command: minishift addons apply subatomic
+      ignore_errors: yes
 
-    - name: 3/5. Wait for Starting Minishift VM...
-      wait_for:
-        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
-        search_regex: 'Starting Minishift VM'
-        timeout: 1200
+    # 9. Restart minishift
+    - name: Minishift start
+      command: minishift openshift restart
 
-#    - name: 4/5. Wait for Pulling the OpenShift Container Image...
-#      wait_for:
-#        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
-#        search_regex: 'Pulling the OpenShift Container Image ....'
-#        timeout: 1200
+    # 10. Update dnsmasq with minishift ip + do curl check
+    - name: minishift ip
+      command: chdir={{path_to_your_local_hadron_collider}} minishift ip
+      register: minishift_ip
+      changed_when: False
 
-    - name: 5/5. Wait for OpenShift server started...
-      wait_for:
-        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
-        search_regex: 'OpenShift server started'
-        timeout: 1200
+    - name: Print minishift ip
+      debug: var=minishift_ip.stdout
 
-#    - name: 'minishift - check on async task'
-#      async_status:
-#        std: "{{ minishift_start.stdout }}"
-#      register: minishift_result
-#      until: minishift_result.find("minishift started") > -1
-#      retries: 600
+    - name: Update dnsmasq with minishift ip
+      command: sed -i -e 's/.*address=\/subatomic.local\/.*/address=\/subatomic.local\/{{minishift_ip.stdout}}/' /usr/local/etc/dnsmasq.conf
+      args:
+        warn: False
 
-#    - name: Print minishift_start variable
-#      debug: var=minishift_start
+    - name: Restart dnsmasq
+      command: brew services restart dnsmasq
+      become: True
 
-#    - name: minishift ip
-#      command: chdir={{path_to_your_local_hadron_collider}} minishift ip
-#      register: minishift_ip
-#      changed_when: False
-#
-#    - name: Print minishift ip
-#      debug: var=minishift_ip.stdout
-#
-#    - name: Update dnsmasq
-#      command: sed -i -e 's/.*address=\/subatomic.local\/.*/address=\/subatomic.local\/{{minishift_ip.stdout}}/' /usr/local/etc/dnsmasq.conf
-#      args:
-#        warn: False
-#
-#    - name: Restart dnsmasq
-#      command: brew services restart dnsmasq
-#      become: True
-#
-#    - name: Minishift start
-#      command: minishift start
-#
-#
-#    - name: Log in to OpenShift
-#      command: oc login https://{{minishift_ip.stdout}}:8443 -u=admin -p=admin
-#
-#    - git:
-#        repo: 'https://github.com/redhat-cop/openshift-applier.git'
-#        dest: openshift-applier
-#        clone: True
-#        update: False
-#
-#    - name: Get OpenShift token
-#      command: oc whoami -t
-#      register: oc_token
-#
-#    - name: Print oc token
-#      debug: var=oc_token.stdout
-#
-#    - name: Replace token
-#      replace:
-#        path: '{{path_to_your_quantum_mechanic}}/config/local.json'
-#        regexp: 'token": ".*'
-#        replace: 'token": "{{oc_token.stdout}}"'
-#
-#    - name: Replace masterUrl
-#      replace:
-#        path: '{{path_to_your_quantum_mechanic}}/config/local.json'
-#        regexp: 'masterUrl": "https:\/\/.*'
-#        replace: 'masterUrl": "https://{{minishift_ip.stdout}}:8443",'
-#
-#    - name: Install Applier dependecy via Ansible Galaxy
-#      command: chdir={{path_to_your_local_hadron_collider}} ansible-galaxy install --role-file requirements.yml --roles-path=roles
-#
-#    # see: https://github.com/ansible/ansible/issues/32499
-#    - name: Run OpenShift Applier
-#      shell: "{{item}}"
-#      with_items:
-#      - export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-#      - ansible-playbook -i inventory/hosts roles/openshift-applier/playbooks/openshift-cluster-seed.yml
-#      args:
-#        chdir: {{path_to_your_local_hadron_collider}}
-#      failed_when: False
-#
+    - name: curl check
+      command: curl -I nothing.subatomic.local
+      register: curl_check
+
+    - name: Print curl_check variable
+      debug: var=curl_check
+
+    # 11. Install Subatomic infra-components
+    - name: Log in to OpenShift
+      command: oc login https://{{minishift_ip.stdout}}:8443 -u=admin -p=admin
+
+    - git:
+        repo: 'https://github.com/redhat-cop/openshift-applier.git'
+        dest: openshift-applier
+        clone: True
+        update: False
+
+    - name: Get OpenShift token
+      command: oc whoami -t
+      register: oc_token
+
+    - name: Print oc token
+      debug: var=oc_token.stdout
+
+    - name: Replace token
+      replace:
+        path: '{{path_to_your_quantum_mechanic}}/config/local.json'
+        regexp: 'token": ".*'
+        replace: 'token": "{{oc_token.stdout}}"'
+
+    - name: Replace masterUrl
+      replace:
+        path: '{{path_to_your_quantum_mechanic}}/config/local.json'
+        regexp: 'masterUrl": "https:\/\/.*'
+        replace: 'masterUrl": "https://{{minishift_ip.stdout}}:8443",'
+
+    - name: Install Applier dependecy via Ansible Galaxy
+      command: chdir={{path_to_your_local_hadron_collider}} ansible-galaxy install --role-file requirements.yml --roles-path=roles
+
+    # see: https://github.com/ansible/ansible/issues/32499
+    - name: Run OpenShift Applier
+      shell: "{{item}}"
+      with_items:
+      - export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+      - ansible-playbook -i inventory/hosts roles/openshift-applier/playbooks/openshift-cluster-seed.yml
+      args:
+        chdir: {{path_to_your_local_hadron_collider}}
+      failed_when: False
+
 #  #  - pause:
 #  #      minutes: 15
 #  #      prompt: "Waiting for environment to setup"
