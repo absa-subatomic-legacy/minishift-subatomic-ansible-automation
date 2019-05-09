@@ -1,26 +1,35 @@
 ---
-#Install minishift and get local hadron collier  (MAC ONLY)
+#Install/Re-install minishift and get local hadron collider workign with subatomic  (MAC ONLY)
+# Please ensure either xhyve or virtualbox are already installed as your hypervisor see https://docs.okd.io/latest/minishift/getting-started/setting-up-virtualization-environment.html
+# Note: This script will uninstall minishift if installed and will delete local-hadron and re-clone it
+
 - hosts: localhost
 
   vars:
-    path_to_your_quantum_mechanic: '/Users/andre/Projects/Subatomic'
-    path_to_your_local_hadron_collider: '/Users/andre/Projects/Subatomic'
+    path_to_your_quantum_mechanic: '/Users/andre/Projects/Subatomic/quantum-mechanic'
+    path_to_your_local_hadron_collider: '/Users/andre/Projects/Subatomic/local-hadron-collider'
+    path_to_minishift_start_output_log: '/Users/andre/Projects/Subatomic/'
 
+    # options are virtualbox or xhyve
     vm_driver: 'virtualbox'
-    cpus: "6"
+
+    cpus: "4"
     memory_MB: "8000"
     disk_size_GB: "25"
 
     ansible_version_to_be_greater_than: "2.5.0"
 
+    # time to wait for minishift to download isos and start (1200 = 20 minutes)
+    minishift_startup_timeout_secs: 1200
+
   tasks:
 
-    # Ansible version check
+    # 1. Ansible version check
     - name: Check Ansible version is > {{ansible_version.string}}
       command: ansible --version
       register: ansible_version
 
-    - name: Print brew_services
+    - name: Print ansible_version variable
       debug: var=ansible_version
 
     - name: Ansible full version check
@@ -28,44 +37,49 @@
         msg: " Ansible version {{ansible_version_to_be_greater_than}} is required, you have {{ansible_version.string}} installed"
       when: ( ansible_version.string|replace(".","") |int) <= ( ansible_version_to_be_greater_than|replace(".","") |int)
 
-    # Dnsmasq check
+    # 2. Dnsmasq check
     - name: Check if dnsmasq installed
       command: brew services list
       register: brew_services
 
-    - name: Print brew_services
+    - name: Print brew_services variable
       debug: var=brew_services
 
-    - name: Check for dnsmasq and error out if not installed
-      fail:
-        msg: "dnsmasq is NOT installed, please install it before you continue"
+#    - name: Check for dnsmasq and error out if not installed
+#      fail:
+#        msg: "dnsmasq is NOT installed, please install it before you continue"
+#      when: brew_services.stdout.find("dnsmasq") == -1
+
+    - name: Install dnsmasq if not installed
+      command: brew install dnsmasq
       when: brew_services.stdout.find("dnsmasq") == -1
 
-    # minishift installed?
+    # 3. Minishift installed?
     - name: Get minishift version
       command: 'minishift version'
       register: minishift_version
       ignore_errors: yes
 
-    - name: Print minishift_version
+    - name: Print minishift_version variable
       debug: var=minishift_version
 
-    - name: Minishift found
+    - name: Yes minishift found
       command: echo "Found minishift :)"
       register: found_mini
       when: minishift_version.failed == false
       ignore_errors: yes
 
-    - name: Minishift NOT found
+    - name: No minishift NOT found
       command: echo " minishift missing, ie do not run uninstall"
       register: found_mini
       when: minishift_version.failed == true
       ignore_errors: yes
 
-    - debug: var=found_mini.stdout
+    - name: Print found_mini variable
+      debug: var=found_mini.stdout
 
     # Remove minishift if installed
-    - name: Uninstall minishift
+    - name: Uninstall minishift (if installed)
       command: "{{item}}"
       with_items:
         - minishift stop
@@ -75,41 +89,104 @@
         - brew cask remove minishift
       when: minishift_version.failed == false
 
-    # Install minishift
+    # 4. Install minishift
     - name: Install minishift
       command: brew cask install minishift
 
     - name: Set VM driver
       command: minishift config set vm-driver {{vm_driver}}
 
-##    # Local hadron setup
-#    - name: Ensure local hadron collider folder exists
-#      file:
-#        state: directory
-#        path: '{{path_to_your_local_hadron_collider}}/local-hadron-collider'
-#        mode: 0777
+    # 5. Local hadron clean and clone
+    - name: Delete local hadron collider folder (with contents) if it exists
+      command: rm -rf '{{path_to_your_local_hadron_collider}}'
+
+    - name: Create local hadron collider folder
+      file:
+        state: directory
+        path: '{{path_to_your_local_hadron_collider}}'
+        mode: 0777
+
+    - git:
+        repo: 'https://github.com/absa-subatomic/local-hadron-collider.git'
+        dest: '{{path_to_your_local_hadron_collider}}'
+        clone: True
+        update: False
+
+    # 6. Run `minishift addons
+    - name: Enable minishift addons
+      shell: "{{item}}"
+      with_items:
+      - minishift profile set subatomic-local
+      - minishift addons enable admin-user --profile subatomic-local
+      - minishift addons install minishift-addons/subatomic --profile subatomic-local
+      - minishift addons enable subatomic --profile subatomic-local
+      args:
+        chdir: '{{path_to_your_local_hadron_collider}}'
+      failed_when: False
+
+#    - name: Check pwd
+#      command: pwd
+#      register: this_pwd
 #
-#    - git:
-#        repo: 'https://github.com/absa-subatomic/local-hadron-collider.git'
-#        dest: '{{path_to_your_local_hadron_collider}}/local-hadron-collider'
-#        clone: True
-#        update: False
-#
-#  # Manually run `minishift addons install minishift-addons/subatomic --profile subatomic-local`
-#  # Not sure how to handle error if installed already
-#    - name: Start minishift
-#      shell: "{{item}}"
-#      with_items:
-#      - minishift profile set subatomic-local
-#      - minishift addons enable admin-user --profile subatomic-local
-#      - minishift addons enable subatomic --profile subatomic-local
-#      - minishift start --profile subatomic-local --cpus {{cpus}} --memory {{memory_MB}}MB --disk-size {{disk_size_GB}}GB --routing-suffix subatomic.local --vm-driver
-#      args:
-#        chdir: '{{path_to_your_local_hadron_collider}}/local-hadron-collider'
-#      failed_when: False
-#
+#    - name: Print this_pwd variable
+#      debug: var=this_pwd
+
+    - name: delete minishift start log
+      command: rm -rf {{path_to_minishift_start_output_log}}/minishift_start.log
+
+
+    # 7. minishift start with params
+    - name: 0/5. Start minishift
+      shell: "{{item}}"
+      with_items:
+      - minishift start --profile subatomic-local --cpus {{cpus}} --memory {{memory_MB}}MB --disk-size {{disk_size_GB}}GB --routing-suffix subatomic.local --vm-driver {{vm_driver}} >> {{path_to_minishift_start_output_log}}/minishift_start.log
+      failed_when: False
+      register: minishift_start
+      async: 2400
+      poll: 0
+
+    - name: 1/5. Wait for Downloading OpenShift binary...
+      wait_for:
+        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
+        search_regex: 'Downloading OpenShift binary'
+        timeout: 600
+
+    - name: 2/5. Wait for Minishift VM will be configured with ...
+      wait_for:
+        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
+        search_regex: 'Minishift VM will be configured with ...'
+        timeout: 600
+
+    - name: 3/5. Wait for Starting Minishift VM...
+      wait_for:
+        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
+        search_regex: 'Starting Minishift VM'
+        timeout: 1200
+
+#    - name: 4/5. Wait for Pulling the OpenShift Container Image...
+#      wait_for:
+#        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
+#        search_regex: 'Pulling the OpenShift Container Image ....'
+#        timeout: 1200
+
+    - name: 5/5. Wait for OpenShift server started...
+      wait_for:
+        path: '{{path_to_minishift_start_output_log}}/minishift_start.log'
+        search_regex: 'OpenShift server started'
+        timeout: 1200
+
+#    - name: 'minishift - check on async task'
+#      async_status:
+#        std: "{{ minishift_start.stdout }}"
+#      register: minishift_result
+#      until: minishift_result.find("minishift started") > -1
+#      retries: 600
+
+#    - name: Print minishift_start variable
+#      debug: var=minishift_start
+
 #    - name: minishift ip
-#      command: chdir={{path_to_your_local_hadron_collider}}/local-hadron-collider minishift ip
+#      command: chdir={{path_to_your_local_hadron_collider}} minishift ip
 #      register: minishift_ip
 #      changed_when: False
 #
@@ -147,18 +224,18 @@
 #
 #    - name: Replace token
 #      replace:
-#        path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
+#        path: '{{path_to_your_quantum_mechanic}}/config/local.json'
 #        regexp: 'token": ".*'
 #        replace: 'token": "{{oc_token.stdout}}"'
 #
 #    - name: Replace masterUrl
 #      replace:
-#        path: '{{path_to_your_quantum_mechanic}}/quantum-mechanic/config/local.json'
+#        path: '{{path_to_your_quantum_mechanic}}/config/local.json'
 #        regexp: 'masterUrl": "https:\/\/.*'
 #        replace: 'masterUrl": "https://{{minishift_ip.stdout}}:8443",'
 #
 #    - name: Install Applier dependecy via Ansible Galaxy
-#      command: chdir={{path_to_your_local_hadron_collider}}/local-hadron-collider ansible-galaxy install --role-file requirements.yml --roles-path=roles
+#      command: chdir={{path_to_your_local_hadron_collider}} ansible-galaxy install --role-file requirements.yml --roles-path=roles
 #
 #    # see: https://github.com/ansible/ansible/issues/32499
 #    - name: Run OpenShift Applier
@@ -167,7 +244,7 @@
 #      - export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 #      - ansible-playbook -i inventory/hosts roles/openshift-applier/playbooks/openshift-cluster-seed.yml
 #      args:
-#        chdir: {{path_to_your_local_hadron_collider}}/local-hadron-collider
+#        chdir: {{path_to_your_local_hadron_collider}}
 #      failed_when: False
 #
 #  #  - pause:
